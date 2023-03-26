@@ -74,11 +74,15 @@ impl Pass {
     }
 
     fn save_password(&self, abs_path: &str, password: &[u8]) -> io::Result<()> {
-        self.base_command(&["insert", "-m", "-f", abs_path])?
+        let mut child = self.base_command(&["insert", "-m", "-f", abs_path])?;
+        let mut stdin = child
             .stdin
-            .as_mut()
-            .ok_or_else(|| Error::from_raw_os_error(libc::ENOENT))?
-            .write_all(password)
+            .take()
+            .ok_or_else(|| Error::from_raw_os_error(libc::ENOENT))?;
+        stdin.write_all(password)?;
+        drop(stdin);
+        child.wait()?;
+        Ok(())
     }
 
     fn get_size(&self, abs_path: &str) -> u64 {
