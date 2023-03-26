@@ -1,0 +1,8 @@
+#!/bin/bash
+
+sudo rm target/debug/pass_fs
+cargo build
+sudo chown root:root target/debug/pass_fs
+
+sudo chmod u+s target/debug/pass_fs
+RUST_LOG=debug exec target/debug/pass_fs
