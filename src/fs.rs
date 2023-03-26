@@ -10,7 +10,7 @@ use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command, Output, Stdio};
 use std::str::Lines;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -93,6 +93,7 @@ struct PassInode {
     name: String,
     abs_path: String,
     pass: Arc<Pass>,
+    visited: AtomicBool,
     children: ArcSwap<Vec<Arc<PassInode>>>,
 }
 
@@ -110,6 +111,7 @@ impl PassInode {
             name,
             abs_path,
             pass,
+            visited: AtomicBool::new(false),
             children: ArcSwap::new(Arc::new(Vec::new())),
         }
     }
@@ -192,12 +194,12 @@ impl PassFs {
         ));
         let fs = PassFs {
             next_inode: AtomicInode::new(FIRST_INODE),
-            root_inode,
+            root_inode: root_inode.clone(),
             pass,
             inodes: ArcSwap::new(Arc::new(HashMap::new())),
             last_update: ArcSwap::new(Arc::new(Instant::now())),
         };
-
+        fs.insert_inode(root_inode);
         fs.update_inodes();
         fs
     }
@@ -215,16 +217,22 @@ impl PassFs {
         self.last_update.store(Arc::new(Instant::now()));
         let output = self.pass.list_passwords();
         let mut lines = output.lines().peekable();
-        self.inodes.store(Arc::new(HashMap::new()));
-        self.next_inode.store(FIRST_INODE, Ordering::Relaxed);
-        self.insert_inode(self.root_inode.clone());
-        // Skip the first line as it is not a password
+
         lines.next();
         debug!("converting `pass` output to inodes");
-        self.mk_list(self.root_inode.clone(), &mut lines, None)
+        self.mk_list(self.root_inode.clone(), &mut lines, None);
+        let mut next_map = HashMap::new();
+        for value in self.inodes.load().values() {
+            if value.visited.load(Ordering::Relaxed) {
+                value.visited.store(false, Ordering::Relaxed);
+                next_map.insert(value.ino, value.clone());
+            }
+        }
+        self.inodes.store(Arc::new(next_map));
     }
 
     fn mk_list(&self, parent: Arc<PassInode>, it: &mut Peekable<Lines>, level: Option<usize>) {
+        parent.visited.store(true, Ordering::Relaxed);
         loop {
             if let Some(t) = it.peek() {
                 let index = t.find('├').or_else(|| t.find('└')).expect(
