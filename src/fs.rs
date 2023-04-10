@@ -452,40 +452,91 @@ impl FileSystem for PassFs {
         Ok((entry.attr, entry.attr_timeout))
     }
 
-    fn readdir(
+    fn setattr(
         &self,
         _ctx: &Context,
-        inode: u64,
-        _: u64,
-        size: u32,
-        offset: u64,
-        add_entry: &mut dyn FnMut(DirEntry) -> Result<usize>,
-    ) -> Result<()> {
-        debug!("readdir!{inode}");
-        self.check_update();
-        self.do_readdir(inode, size, offset, add_entry)
+        inode: Self::Inode,
+        _attr: stat64,
+        _handle: Option<Self::Handle>,
+        valid: SetattrValid,
+    ) -> io::Result<(stat64, Duration)> {
+        debug!("setattr!{inode}:{valid:?}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
     }
 
-    fn readdirplus(
+    fn readlink(&self, _ctx: &Context, inode: Self::Inode) -> io::Result<Vec<u8>> {
+        debug!("readlink!{inode}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
+    }
+
+    fn symlink(
         &self,
         _ctx: &Context,
-        inode: u64,
-        _handle: u64,
-        size: u32,
-        offset: u64,
-        add_entry: &mut dyn FnMut(DirEntry, Entry) -> Result<usize>,
-    ) -> Result<()> {
-        debug!("readdirplus!{inode}");
-        self.check_update();
-        self.do_readdir(inode, size, offset, &mut |dir_entry| {
-            let entry = self.get_entry(dir_entry.ino)?;
-            add_entry(dir_entry, entry)
-        })
+        link_name: &CStr,
+        _parent: Self::Inode,
+        name: &CStr,
+    ) -> io::Result<Entry> {
+        debug!("symlink!{name:?}:{link_name:?}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
     }
 
-    fn access(&self, _ctx: &Context, inode: u64, _mask: u32) -> Result<()> {
-        debug!("access!{inode}");
-        Ok(())
+    fn mknod(
+        &self,
+        _ctx: &Context,
+        inode: Self::Inode,
+        _name: &CStr,
+        _mode: u32,
+        _rdev: u32,
+        _umask: u32,
+    ) -> io::Result<Entry> {
+        debug!("mknod!{inode}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
+    }
+
+    fn mkdir(
+        &self,
+        _ctx: &Context,
+        _parent: Self::Inode,
+        name: &CStr,
+        _mode: u32,
+        _umask: u32,
+    ) -> io::Result<Entry> {
+        debug!("mkdir!{name:?}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
+    }
+
+    fn unlink(&self, _ctx: &Context, _parent: Self::Inode, name: &CStr) -> io::Result<()> {
+        debug!("unlink!{name:?}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
+    }
+
+    fn rmdir(&self, _ctx: &Context, _parent: Self::Inode, name: &CStr) -> io::Result<()> {
+        debug!("rmdir!{name:?}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
+    }
+
+    fn rename(
+        &self,
+        _ctx: &Context,
+        _old_dir: Self::Inode,
+        old_name: &CStr,
+        _new_dir: Self::Inode,
+        new_name: &CStr,
+        _flags: u32,
+    ) -> io::Result<()> {
+        debug!("rename!{old_name:?}:{new_name:?}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
+    }
+
+    fn link(
+        &self,
+        _ctx: &Context,
+        inode: Self::Inode,
+        _new_parent: Self::Inode,
+        new_name: &CStr,
+    ) -> io::Result<Entry> {
+        debug!("rmdir!{inode}:{new_name:?}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
     }
 
     fn create(
@@ -560,5 +611,241 @@ impl FileSystem for PassFs {
         }
         self.pass.save_password(&inode.abs_path, &data_out)?;
         Ok(buf.len())
+    }
+
+    fn flush(
+        &self,
+        _ctx: &Context,
+        inode: Self::Inode,
+        _handle: Self::Handle,
+        _lock_owner: u64,
+    ) -> io::Result<()> {
+        debug!("flush!{inode}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
+    }
+
+    fn fsync(
+        &self,
+        _ctx: &Context,
+        inode: Self::Inode,
+        _datasync: bool,
+        _handle: Self::Handle,
+    ) -> io::Result<()> {
+        debug!("fsync!{inode}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
+    }
+
+    fn fallocate(
+        &self,
+        _ctx: &Context,
+        inode: Self::Inode,
+        _handle: Self::Handle,
+        _mode: u32,
+        _offset: u64,
+        _length: u64,
+    ) -> io::Result<()> {
+        debug!("fallocate!{inode}");
+        Ok(())
+    }
+
+    fn release(
+        &self,
+        _ctx: &Context,
+        inode: Self::Inode,
+        _flags: u32,
+        _handle: Self::Handle,
+        _flush: bool,
+        _flock_release: bool,
+        _lock_owner: Option<u64>,
+    ) -> io::Result<()> {
+        debug!("fallocate!{inode}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
+    }
+
+    fn setxattr(
+        &self,
+        _ctx: &Context,
+        inode: Self::Inode,
+        _name: &CStr,
+        _value: &[u8],
+        _flags: u32,
+    ) -> io::Result<()> {
+        debug!("setxattr!{inode}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
+    }
+
+    fn getxattr(
+        &self,
+        _ctx: &Context,
+        inode: Self::Inode,
+        _name: &CStr,
+        _size: u32,
+    ) -> io::Result<GetxattrReply> {
+        debug!("getxattr!{inode}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
+    }
+
+    fn listxattr(
+        &self,
+        _ctx: &Context,
+        inode: Self::Inode,
+        _size: u32,
+    ) -> io::Result<ListxattrReply> {
+        debug!("listxattr!{inode}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
+    }
+
+    fn removexattr(&self, _ctx: &Context, inode: Self::Inode, _name: &CStr) -> io::Result<()> {
+        debug!("removexattr!{inode}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
+    }
+
+    fn readdir(
+        &self,
+        _ctx: &Context,
+        inode: u64,
+        _: u64,
+        size: u32,
+        offset: u64,
+        add_entry: &mut dyn FnMut(DirEntry) -> Result<usize>,
+    ) -> Result<()> {
+        debug!("readdir!{inode}");
+        self.check_update();
+        self.do_readdir(inode, size, offset, add_entry)
+    }
+
+    fn readdirplus(
+        &self,
+        _ctx: &Context,
+        inode: u64,
+        _handle: u64,
+        size: u32,
+        offset: u64,
+        add_entry: &mut dyn FnMut(DirEntry, Entry) -> Result<usize>,
+    ) -> Result<()> {
+        debug!("readdirplus!{inode}");
+        self.check_update();
+        self.do_readdir(inode, size, offset, &mut |dir_entry| {
+            let entry = self.get_entry(dir_entry.ino)?;
+            add_entry(dir_entry, entry)
+        })
+    }
+
+    fn fsyncdir(
+        &self,
+        _ctx: &Context,
+        inode: Self::Inode,
+        _datasync: bool,
+        _handle: Self::Handle,
+    ) -> io::Result<()> {
+        debug!("fsyncdir!{inode}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
+    }
+
+    fn releasedir(
+        &self,
+        _ctx: &Context,
+        inode: Self::Inode,
+        _flags: u32,
+        _handle: Self::Handle,
+    ) -> io::Result<()> {
+        debug!("releasedir!{inode}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
+    }
+
+    fn access(&self, _ctx: &Context, inode: u64, _mask: u32) -> Result<()> {
+        debug!("access!{inode}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
+    }
+
+    fn lseek(
+        &self,
+        _ctx: &Context,
+        inode: Self::Inode,
+        _handle: Self::Handle,
+        _offset: u64,
+        _whence: u32,
+    ) -> io::Result<u64> {
+        debug!("lseek!{inode}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
+    }
+
+    fn getlk(
+        &self,
+        _ctx: &Context,
+        inode: Self::Inode,
+        _handle: Self::Handle,
+        _owner: u64,
+        _lock: FileLock,
+        _flags: u32,
+    ) -> io::Result<FileLock> {
+        debug!("getlk!{inode}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
+    }
+
+    fn setlk(
+        &self,
+        _ctx: &Context,
+        inode: Self::Inode,
+        _handle: Self::Handle,
+        _owner: u64,
+        _lock: FileLock,
+        _flags: u32,
+    ) -> io::Result<()> {
+        debug!("setlk!{inode}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
+    }
+
+    fn setlkw(
+        &self,
+        _ctx: &Context,
+        inode: Self::Inode,
+        _handle: Self::Handle,
+        _owner: u64,
+        _lock: FileLock,
+        _flags: u32,
+    ) -> io::Result<()> {
+        debug!("setlkw!{inode}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
+    }
+
+    fn ioctl(
+        &self,
+        _ctx: &Context,
+        inode: Self::Inode,
+        _handle: Self::Handle,
+        _flags: u32,
+        _cmd: u32,
+        _data: IoctlData,
+        _out_size: u32,
+    ) -> io::Result<IoctlData> {
+        debug!("ioctl!{inode}");
+        // Rather than ENOSYS, let's return ENOTTY so simulate that the ioctl call is implemented
+        // but no ioctl number is supported.
+        Err(io::Error::from_raw_os_error(libc::ENOTTY))
+    }
+
+    fn bmap(
+        &self,
+        _ctx: &Context,
+        inode: Self::Inode,
+        _block: u64,
+        _block_size: u32,
+    ) -> io::Result<u64> {
+        debug!("bmap!{inode}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
+    }
+
+    fn poll(
+        &self,
+        _ctx: &Context,
+        inode: Self::Inode,
+        _handle: Self::Handle,
+        _k_handle: Self::Handle,
+        _flags: u32,
+        _events: u32,
+    ) -> io::Result<u32> {
+        debug!("poll!{inode}");
+        Err(io::Error::from_raw_os_error(libc::ENOSYS))
     }
 }
