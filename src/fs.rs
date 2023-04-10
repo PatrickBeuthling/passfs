@@ -456,12 +456,25 @@ impl FileSystem for PassFs {
         &self,
         _ctx: &Context,
         inode: Self::Inode,
-        _attr: stat64,
+        attr: stat64,
         _handle: Option<Self::Handle>,
         valid: SetattrValid,
     ) -> io::Result<(stat64, Duration)> {
         debug!("setattr!{inode}:{valid:?}");
-        Err(io::Error::from_raw_os_error(libc::ENOSYS))
+        // let entry = self.get_entry(inode)?;
+        // debug!("setattr2!{inode}:{:#?}:{attr:#?}:{valid:?}", entry.attr);
+        match valid {
+            SetattrValid::SIZE => {
+                let inode = self.get_inode(inode)?;
+                let mut data = self.pass.get_password(&inode.abs_path)?;
+                let attr: Attr = attr.into();
+                data.resize(attr.size as usize, 0);
+                self.pass.save_password(&inode.abs_path, &data)?;
+                let entry = self.get_entry(inode.ino)?;
+                Ok((entry.attr, entry.attr_timeout))
+            }
+            _ => Err(io::Error::from_raw_os_error(libc::ENOSYS)),
+        }
     }
 
     fn readlink(&self, _ctx: &Context, inode: Self::Inode) -> io::Result<Vec<u8>> {
