@@ -38,6 +38,12 @@ fn cleanup_name(input: &str) -> Option<String> {
     )
 }
 
+fn c_to_str(c_str: &CStr) -> Result<&str> {
+    c_str
+        .to_str()
+        .map_err(|_| Error::from_raw_os_error(libc::EINVAL))
+}
+
 #[derive(Debug)]
 pub struct Pass {
     uid: u32,
@@ -313,29 +319,26 @@ impl PassFs {
     }
 
     #[allow(dead_code)]
-    pub fn evict_inode(&self, ino: Inode) {
+    pub fn evict_inode(&self, ino: Inode) -> Result<()> {
         let inodes = self.inodes.load();
 
-        let inode = inodes.get(&ino).unwrap();
+        let inode = self.get_inode(ino)?;
         // ino == inode.parent means it is the root inode.
         // Do not evict it.
         if ino == inode.parent {
-            return;
+            return Ok(());
         }
 
         if let Some(parent) = inodes.get(&inode.parent) {
             parent.remove_child(inode.clone());
 
-            self.remove_inode(inode);
+            self.remove_inode(&inode);
         }
+        Ok(())
     }
 
     fn get_entry(&self, ino: Inode) -> Result<Entry> {
-        self.inodes
-            .load()
-            .get(&ino)
-            .map(|inode| inode.to_entry())
-            .ok_or_else(|| Error::from_raw_os_error(libc::ENOENT))?
+        self.get_inode(ino)?.to_entry()
     }
 
     fn do_readdir(
@@ -348,16 +351,13 @@ impl PassFs {
         if size == 0 {
             return Ok(());
         }
-        let inodes = self.inodes.load();
-        let inode = inodes
-            .get(&parent)
-            .ok_or_else(|| Error::from_raw_os_error(libc::ENOENT))?;
+        let parent = self.get_inode(parent)?;
         let mut offset = offset;
-        let children = inode.children.load();
+        let children = parent.children.load();
 
         if offset == 0 {
             match add_entry(DirEntry {
-                ino: inode.ino,
+                ino: parent.ino,
                 offset: 0,
                 type_: libc::DT_DIR as u32,
                 name: ".".as_bytes(),
@@ -370,7 +370,7 @@ impl PassFs {
 
         if offset == 1 {
             match add_entry(DirEntry {
-                ino: inode.parent,
+                ino: parent.parent,
                 offset: 1,
                 type_: libc::DT_DIR as u32,
                 name: "..".as_bytes(),
@@ -417,27 +417,19 @@ impl FileSystem for PassFs {
     fn lookup(&self, _: &Context, parent: Inode, name: &CStr) -> Result<Entry> {
         debug!("lookup!{parent}!{:?}", name);
         self.check_update();
-        let inodes = self.inodes.load();
-        let pinode = inodes
-            .get(&parent)
-            .ok_or_else(|| Error::from_raw_os_error(libc::ENOENT))?;
-        let child_name = name
-            .to_str()
-            .map_err(|_| Error::from_raw_os_error(libc::EINVAL))?;
+        let parent = self.get_inode(parent)?;
+        let name = c_to_str(name)?;
 
-        if child_name == "." {
-            return pinode.to_entry();
+        if name == "." {
+            return parent.to_entry();
         }
 
-        if child_name == ".." {
-            return inodes
-                .get(&pinode.parent)
-                .ok_or_else(|| Error::from_raw_os_error(libc::ENOENT))?
-                .to_entry();
+        if name == ".." {
+            return self.get_entry(parent.parent);
         }
 
-        for child in pinode.children.load().iter() {
-            if child.name == child_name {
+        for child in parent.children.load().iter() {
+            if child.name == name {
                 return child.to_entry();
             }
         }
@@ -561,12 +553,8 @@ impl FileSystem for PassFs {
     ) -> io::Result<(Entry, Option<Self::Handle>, OpenOptions)> {
         debug!("create!{parent}");
         Ok((
-            self.create_inode(
-                name.to_str()
-                    .map_err(|_| io::Error::from_raw_os_error(libc::ENOSYS))?,
-                &self.get_inode(parent)?,
-            )
-            .to_entry()?,
+            self.create_inode(c_to_str(name)?, &self.get_inode(parent)?)
+                .to_entry()?,
             None,
             OpenOptions::empty(),
         ))
