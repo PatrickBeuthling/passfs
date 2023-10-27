@@ -94,6 +94,11 @@ impl Pass {
     fn get_size(&self, abs_path: &str) -> u64 {
         self.get_password(abs_path).map_or(0, |v| v.len() as u64)
     }
+
+    fn remove_password(&self, abs_path: &str) -> io::Result<()> {
+        self.base_command(&["rm", "-r", "-f", abs_path])?;
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -104,6 +109,7 @@ struct PassInode {
     abs_path: String,
     pass: Arc<Pass>,
     visited: AtomicBool,
+    dir: AtomicBool,
     children: ArcSwap<Vec<Arc<PassInode>>>,
 }
 
@@ -114,6 +120,7 @@ impl PassInode {
         name: String,
         abs_path: String,
         pass: Arc<Pass>,
+        dir: bool,
     ) -> PassInode {
         PassInode {
             ino,
@@ -122,6 +129,7 @@ impl PassInode {
             abs_path,
             pass,
             visited: AtomicBool::new(false),
+            dir: AtomicBool::new(dir),
             children: ArcSwap::new(Arc::new(Vec::new())),
         }
     }
@@ -158,12 +166,12 @@ impl PassInode {
             ..Default::default()
         };
         attr.ino = self.ino;
-        if self.children.load().len() == 0 {
-            attr.mode = FILE_MODE;
-            attr.size = self.pass.get_size(&self.abs_path);
-        } else {
+        if self.dir.load(Ordering::Relaxed) {
             attr.mode = DIR_MODE;
             attr.size = 4096;
+        } else {
+            attr.mode = FILE_MODE;
+            attr.size = self.pass.get_size(&self.abs_path);
         }
         let now = SystemTime::now();
         attr.ctime = now
@@ -201,6 +209,7 @@ impl PassFs {
             String::from("/"),
             String::from("/"),
             pass.clone(),
+            true,
         ));
         let fs = PassFs {
             next_inode: AtomicInode::new(FIRST_INODE),
@@ -254,8 +263,10 @@ impl PassFs {
                     if let Some(name) = cleanup_name(&t[index..]) {
                         let child = match parent.get_child(&name) {
                             Some(child) => child,
-                            None => self.create_inode(&name, &parent),
+                            None => self.create_inode(&name, &parent, false),
                         };
+
+                        parent.dir.store(true, Ordering::Relaxed);
                         self.mk_list(child, it, Some(index));
                     }
                 } else {
@@ -269,7 +280,7 @@ impl PassFs {
         }
     }
 
-    fn new_inode(&self, parent: Inode, name: &str, abs_path: &str) -> Arc<PassInode> {
+    fn new_inode(&self, parent: Inode, name: &str, abs_path: &str, dir: bool) -> Arc<PassInode> {
         let ino = self.next_inode.fetch_add(1, Ordering::Relaxed);
 
         Arc::new(PassInode::new(
@@ -278,6 +289,7 @@ impl PassFs {
             name.to_owned(),
             abs_path.to_owned(),
             self.pass.clone(),
+            dir,
         ))
     }
 
@@ -289,11 +301,12 @@ impl PassFs {
         });
     }
 
-    fn create_inode(&self, name: &str, parent: &Arc<PassInode>) -> Arc<PassInode> {
+    fn create_inode(&self, name: &str, parent: &Arc<PassInode>, dir: bool) -> Arc<PassInode> {
         let inode = self.new_inode(
             parent.ino,
             name,
             Path::new(&parent.abs_path).join(name).to_str().unwrap(),
+            dir,
         );
 
         self.insert_inode(inode.clone());
@@ -318,7 +331,6 @@ impl PassFs {
             .map(|inode| inode.clone())
     }
 
-    #[allow(dead_code)]
     pub fn evict_inode(&self, ino: Inode) -> Result<()> {
         let inodes = self.inodes.load();
 
@@ -501,18 +513,25 @@ impl FileSystem for PassFs {
     fn mkdir(
         &self,
         _ctx: &Context,
-        _parent: Self::Inode,
+        parent: Self::Inode,
         name: &CStr,
         _mode: u32,
         _umask: u32,
     ) -> io::Result<Entry> {
         debug!("mkdir!{name:?}");
-        Err(io::Error::from_raw_os_error(libc::ENOSYS))
+        let inode = self.create_inode(c_to_str(name)?, &self.get_inode(parent)?, true);
+        inode.to_entry()
+        //Err(io::Error::from_raw_os_error(libc::ENOSYS))
     }
 
-    fn unlink(&self, _ctx: &Context, _parent: Self::Inode, name: &CStr) -> io::Result<()> {
+    fn unlink(&self, _ctx: &Context, parent: Self::Inode, name: &CStr) -> io::Result<()> {
         debug!("unlink!{name:?}");
-        Err(io::Error::from_raw_os_error(libc::ENOSYS))
+        let parent = &self.get_inode(parent)?;
+        let child = parent
+            .get_child(c_to_str(name)?)
+            .ok_or(io::Error::from_raw_os_error(libc::ENOSYS))?;
+        self.evict_inode(child.ino)?;
+        self.pass.remove_password(&child.abs_path)
     }
 
     fn rmdir(&self, _ctx: &Context, _parent: Self::Inode, name: &CStr) -> io::Result<()> {
@@ -553,7 +572,7 @@ impl FileSystem for PassFs {
     ) -> io::Result<(Entry, Option<Self::Handle>, OpenOptions)> {
         debug!("create!{parent}");
         Ok((
-            self.create_inode(c_to_str(name)?, &self.get_inode(parent)?)
+            self.create_inode(c_to_str(name)?, &self.get_inode(parent)?, false)
                 .to_entry()?,
             None,
             OpenOptions::empty(),
@@ -659,7 +678,7 @@ impl FileSystem for PassFs {
         _flock_release: bool,
         _lock_owner: Option<u64>,
     ) -> io::Result<()> {
-        debug!("fallocate!{inode}");
+        debug!("release!{inode}");
         Err(io::Error::from_raw_os_error(libc::ENOSYS))
     }
 

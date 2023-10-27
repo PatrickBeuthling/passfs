@@ -5,19 +5,17 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 use std::thread;
+use thiserror::Error;
+use uzers::os::unix::UserExt;
+use uzers::User;
 
 use fuse_backend_rs::api::server::Server as FuseServer;
 use fuse_backend_rs::transport::{FuseChannel, FuseSession};
-use nix::unistd::{getgid, getuid, User};
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Error)]
 pub enum Error {
-    #[error("Could not resolve User")]
-    GetUser,
     #[error("Could convert home dir")]
     Path,
-    #[error(transparent)]
-    Nix(#[from] nix::Error),
     #[error(transparent)]
     Fuse(#[from] fuse_backend_rs::transport::Error),
     #[error(transparent)]
@@ -27,7 +25,6 @@ pub enum Error {
 type Result<T> = core::result::Result<T, Error>;
 
 /// A fusedev daemon example
-#[allow(dead_code)]
 pub struct Daemon {
     mountpoint: PathBuf,
     server: Arc<FuseServer<Arc<PassFs>>>,
@@ -35,15 +32,14 @@ pub struct Daemon {
     session: Option<FuseSession>,
 }
 
-#[allow(dead_code)]
 impl Daemon {
     /// Creates a fusedev daemon instance
-    pub fn new(thread_cnt: u32) -> Result<Self> {
+    pub fn new(user: &User, thread_cnt: u32) -> Result<Self> {
         info!("setting up daemon");
-        let mut home = User::from_uid(getuid())?.ok_or(Error::GetUser)?.dir;
+        let mut home = user.home_dir().to_path_buf();
         let fs = PassFs::new(Arc::new(Pass::new(
-            getuid().as_raw(),
-            getgid().as_raw(),
+            user.uid(),
+            user.primary_group_id(),
             home.to_str().ok_or(Error::Path)?.to_owned(),
         )));
 
